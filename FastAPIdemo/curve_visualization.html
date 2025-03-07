@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>曲线相似度分析</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .button-container {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .chart-container {
+            margin-bottom: 20px;
+        }
+        .result-container {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center;">曲线相似度分析</h1>
+    
+    <div class="button-container">
+        <button onclick="generateCurves()">生成测试曲线</button>
+        <button onclick="calculateSimilarity()" id="calcButton" disabled>计算余弦相似度</button>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="curveChart"></canvas>
+    </div>
+
+    <div class="result-container" id="resultContainer" style="display: none;">
+        <h3>计算结果：</h3>
+        <p id="similarityResult"></p>
+        <p id="responseTime"></p>
+    </div>
+
+    <script>
+        let curveChart = null;
+        let curve1Data = null;
+        let curve2Data = null;
+
+        async function generateCurves() {
+            try {
+                // 调用Python后端生成曲线数据
+                const response = await fetch('http://localhost:8000/generate-curves');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                curve1Data = data.curve1;
+                curve2Data = data.curve2;
+
+                // 更新图表
+                updateChart();
+            } catch (error) {
+                // 错误处理
+                console.error('生成曲线失败:', error);
+                alert('生成曲线失败: ' + error.message);
+            }
+            
+            // 启用计算按钮
+            document.getElementById('calcButton').disabled = false;
+        }
+
+        function updateChart() {
+            const ctx = document.getElementById('curveChart').getContext('2d');
+            
+            if (curveChart) {
+                curveChart.destroy();
+            }
+
+            curveChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 100}, (_, i) => i),
+                    datasets: [
+                        {
+                            label: '曲线1 (正弦波)',
+                            data: curve1Data,
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        },
+                        {
+                            label: '曲线2 (余弦波)',
+                            data: curve2Data,
+                            borderColor: 'rgb(255, 99, 132)',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '测试曲线对比'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        async function calculateSimilarity() {
+            if (!curve1Data || !curve2Data) {
+                alert('请先生成测试曲线！');
+                return;
+            }
+
+            try {
+                const startTime = performance.now();
+                const response = await fetch('http://localhost:8000/calculate/cosine-similarity', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        curve1: curve1Data,
+                        curve2: curve2Data
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const endTime = performance.now();
+                const responseTime = endTime - startTime;
+
+                // 显示结果
+                const resultContainer = document.getElementById('resultContainer');
+                const similarityResult = document.getElementById('similarityResult');
+                const responseTimeElement = document.getElementById('responseTime');
+                
+                resultContainer.style.display = 'block';
+                similarityResult.textContent = `余弦相似度: ${data.cosine_similarity.toFixed(4)}`;
+                responseTimeElement.textContent = `API响应时间: ${responseTime.toFixed(2)}毫秒`;
+
+                // 添加相似度解释
+                let explanation = '';
+                const similarity = data.cosine_similarity;
+                if (similarity > 0.9) {
+                    explanation = '两条曲线非常相似';
+                } else if (similarity > 0.7) {
+                    explanation = '两条曲线比较相似';
+                } else if (similarity > 0) {
+                    explanation = '两条曲线有一定相似性';
+                } else if (similarity === 0) {
+                    explanation = '两条曲线没有相似性';
+                } else {
+                    explanation = '两条曲线呈负相关';
+                }
+                similarityResult.textContent += ` (${explanation})`;
+
+            } catch (error) {
+                console.error('Error:', error);
+                alert('计算失败：' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>
